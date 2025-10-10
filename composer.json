@@ -1,0 +1,24 @@
+{
+  "name": "ewebovky/status-bundle",
+  "description": "Generátor a endpoint pro status.json v Symfony pro Ewebovky.",
+  "type": "symfony-bundle",
+  "license": "MIT",
+  "autoload": {
+    "psr-4": {
+      "Ewebovky\\StatusBundle\\": "src/"
+    }
+  },
+  "require": {
+    "php": "^8.1",
+    "symfony/framework-bundle": "^6.4 || ^7.0"
+  },
+  "suggest": {
+    "doctrine/persistence": "Pro zobrazení informací o DB verzi."
+  },
+  "extra": {
+    "branch-alias": {
+      "dev-main": "1.x-dev"
+    }
+  },
+  "version": "1.0.0"
+}
