@@ -4,20 +4,10 @@ Lehký Symfony bundle, který poskytuje endpoint `/status.json` chráněný toke
 
 ## Instalace
 
-### a) Přes VCS repo (bez Packagistu)
-
-```jsonc
-// composer.json (váš projekt)
-{
-  "repositories": [
-    { "type": "vcs", "url": "git@github.com:ewebovky/status-bundle.git" }
-  ],
-  "require": {
-    "ewebovky/status-bundle": "^1.0"
-  }
-}
-```
 ```bash
+composer config --json extra.symfony.endpoint '["flex://defaults","https://raw.githubusercontent.com/Ewebovky/recipes/main/index.json"]'
+composer config extra.symfony.allow-contrib true
+composer clear-cache
 composer require ewebovky/status-bundle:^1.0
 ```
 
