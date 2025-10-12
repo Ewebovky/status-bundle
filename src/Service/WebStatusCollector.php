@@ -18,17 +18,7 @@ final class WebStatusCollector
     /** @return array<string,mixed> */
     public function collect(string $host): array
     {
-        $dbServer = null;
-        $dbVersion = null;
-        try {
-            $conn = $this->doctrine?->getConnection();
-            if ($conn) {
-                $dbServer  = $conn->getDatabasePlatform()->getName();       // mysql, mariadb, postgresql, ...
-                $dbVersion = $conn->getNativeConnection()->getAttribute($conn->getNativeConnection()::ATTR_SERVER_VERSION);
-            }
-        } catch (\Throwable) {
-            // necháme null - endpoint neselže kvůli DB
-        }
+        [$dbDriver, $dbVersion] = $this->detectDatabase();
 
         return [
             'framework'                     => 'symfony',
@@ -45,7 +35,7 @@ final class WebStatusCollector
             'serverOperatingSystemVersion'  => $this->detectOs()['version'],
             'serverName'                    => php_uname('n'),
             'serverIp'                      => $this->detectServerIp(),
-            'dbServer'                      => $dbServer,
+            'dbServer'                      => $dbDriver,
             'dbVersion'                     => $dbVersion,
             'generatedAt'                   => (new DateTimeImmutable())->format(DATE_ATOM),
         ];
@@ -137,5 +127,64 @@ final class WebStatusCollector
         }
 
         return null;
+    }
+
+    /**
+     * Detekuje typ a verzi databáze.
+     * @return array{0:?string,1:?string} [driver, version]
+     */
+    private function detectDatabase(): array
+    {
+        $driver = null;
+        $version = null;
+
+        try {
+            $conn = $this->doctrine?->getConnection();
+            if (!$conn) {
+                return [null, null];
+            }
+
+            $platform = $conn->getDatabasePlatform()->getName(); // mysql, postgresql, sqlite, ...
+            $params   = $conn->getParams();
+            $driverId = $params['driver'] ?? null;               // pdo_mysql, mysqli, pdo_pgsql, ...
+
+            // Určení typu
+            $driver = match ($platform) {
+                'mysql'      => 'MySQL',
+                'postgresql' => 'PostgreSQL',
+                'sqlite'     => 'SQLite',
+                default      => $platform ?: $driverId,
+            };
+
+            // Získání verze - univerzálně přes SQL dotaz
+            switch ($platform) {
+                case 'mysql':
+                    $version = $conn->fetchOne('SELECT VERSION()');
+                    if ($version && stripos($version, 'mariadb') !== false) {
+                        $driver = 'MariaDB';
+                    }
+                    break;
+
+                case 'postgresql':
+                    $version = $conn->fetchOne('SHOW server_version');
+                    if (!$version) {
+                        $version = $conn->fetchOne('SELECT version()');
+                    }
+                    break;
+
+                case 'sqlite':
+                    $version = $conn->fetchOne('SELECT sqlite_version()');
+                    break;
+
+                default:
+                    $version = $conn->fetchOne('SELECT VERSION()');
+                    break;
+            }
+        } catch (\Throwable $e) {
+            // necháme null - endpoint nesmí kvůli DB selhat
+            // případně log: error_log('DB detect failed: '.$e->getMessage());
+        }
+
+        return [$driver, $version];
     }
 }
