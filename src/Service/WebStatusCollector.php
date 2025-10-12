@@ -1,7 +1,8 @@
 <?php
+
 declare(strict_types=1);
 
-namespace Ewebovky\StatusBundle\Service;
+namespace App\Service;
 
 use DateTimeImmutable;
 use Doctrine\Persistence\ManagerRegistry;
@@ -17,46 +18,44 @@ final class WebStatusCollector
     /** @return array<string,mixed> */
     public function collect(string $host): array
     {
-        $framework             = 'symfony';
-        $frameworkVersion      = Kernel::VERSION;
-        $frameworkMajorVersion = Kernel::MAJOR_VERSION . '.' . Kernel::MINOR_VERSION;
+        $framework              = 'symfony';
+        $frameworkVersion       = Kernel::VERSION;                          // např. 7.1.x
+        $frameworkMajorVersion  = Kernel::MAJOR_VERSION . '.' . Kernel::MINOR_VERSION;
+        //$frameworkMajorVersion  = preg_replace('/^(\d+\.\d+).*/', '$1', $frameworkVersion) ?? null;
 
-        $phpVersion      = PHP_VERSION;
-        $phpMajorVersion = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+        $phpVersion             = PHP_VERSION;                                     // např. 8.4.13
+        $phpMajorVersion        = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;         // např. 8.4
 
-        $serverSoftware        = $_SERVER['SERVER_SOFTWARE'] ?? \php_sapi_name();
-        $serverOperatingSystem = PHP_OS_FAMILY;
-        $serverName            = \php_uname('n');
-        $serverIp              = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $serverSoftware         = $_SERVER['SERVER_SOFTWARE'] ?? php_sapi_name();
+        //$serverOperatingSystem  = PHP_OS_FAMILY;                              // např. Darwin
+        $serverName             = php_uname('n');
+        $serverIp               = isset($_SERVER["SERVER_ADDR"]) ? $_SERVER["SERVER_ADDR"] : null;
 
-        $dbServer  = null;
+        $dbServer = null;
         $dbVersion = null;
         try {
             $conn = $this->doctrine?->getConnection();
             if ($conn) {
-                $dbServer  = $conn->getDatabasePlatform()->getName();
-                $native    = $conn->getNativeConnection();
-                $dbVersion = \is_object($native) && \defined($native::class.'::ATTR_SERVER_VERSION')
-                    ? $native->getAttribute($native::ATTR_SERVER_VERSION)
-                    : null;
+                $dbServer  = $conn->getDatabasePlatform()->getName();       // mysql, mariadb, postgresql, ...
+                $dbVersion = $conn->getNativeConnection()->getAttribute($conn->getNativeConnection()::ATTR_SERVER_VERSION);
             }
         } catch (\Throwable) {
-            // necháme null – endpoint kvůli DB neselže
+            // necháme null - endpoint neselže kvůli DB
         }
 
         return [
             'framework'                     => $framework,
             'frameworkVersion'              => $frameworkVersion,
             'frameworkMajorVersion'         => $frameworkMajorVersion,
-            'frameworkEndOfMaintenance'     => Kernel::END_OF_MAINTENANCE,
+            'frameworkEndOfMaintenance'     => Kernel::END_OF_MAINTENANCE,                           // nechávám na tobě (pokud chceš, můžeme dopočítávat z mapy)
             'frameworkEndOfLife'            => Kernel::END_OF_LIFE,
             'environment'                   => $this->appEnv,
             'phpMajorVersion'               => $phpMajorVersion,
             'phpVersion'                    => $phpVersion,
             'serverSoftware'                => (string) $serverSoftware,
             'host'                          => $host,
-            'serverOperatingSystem'         => $serverOperatingSystem,
-            'serverOperatingSystemVersion'  => $this->getOs(),
+            'serverOperatingSystem'         => $this->getOs()['name'],
+            'serverOperatingSystemVersion'  => $this->getOs()['version'],
             'serverName'                    => $serverName,
             'serverIp'                      => $serverIp,
             'dbServer'                      => $dbServer,
@@ -65,19 +64,42 @@ final class WebStatusCollector
         ];
     }
 
-    private function getOs(): string
+    private function getOs(): array
     {
-        $os_release = @\shell_exec('cat /etc/os-release');
+        $os_release = shell_exec('cat /etc/os-release');
+
+        $os = ['name' => '', 'version' => ''];
+
         if ($os_release) {
-            foreach (\explode("\n", (string)$os_release) as $line) {
-                if (\str_starts_with($line, 'VERSION_ID=')) {
-                    $version = \trim(\substr($line, \strlen('VERSION_ID=')), "\" \t\r\n");
-                    return $version;
+            // Rozdělí výstup podle řádků
+            $lines = explode("\n", $os_release);
+            foreach ($lines as $line) {
+                if (strpos($line, 'NAME=') === 0) {
+                    $name = trim($line, 'NAME=');
+                    $name = trim($name, '"'); // Odstraní případné uvozovky
+                    $os['name'] = $name;
                 }
+                if (strpos($line, 'VERSION=') === 0) {
+                    $version = trim($line, 'VERSION=');
+                    $version = trim($version, '"'); // Odstraní případné uvozovky
+                    $os['version'] = $version;
+                }
+            }
+        } else {
+            // Pokud /etc/os-release není k dispozici, zkusí lsb_release
+            $lsb_release = shell_exec('lsb_release -ds');
+            if ($lsb_release) {
+                $os['name'] = trim($lsb_release, '"');
             }
         }
 
-        $lsb_release = @\shell_exec('lsb_release -ds');
-        return $lsb_release ? \trim((string)$lsb_release) : '';
+        if ($os['name'] == '') {
+            $os['name'] = php_uname('s');
+        }
+        if ($os['version'] == '') {
+            $os['version'] = php_uname('r');
+        }
+
+        return $os;
     }
 }
