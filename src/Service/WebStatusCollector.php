@@ -131,9 +131,8 @@ final class WebStatusCollector
     }
 
     /**
-     * Detekuje typ a verzi databáze.
-     * Vrací [driver, version, error] – error je string nebo null.
-     * Nikdy nevyhazuje výjimku (aby endpoint nespadl), ale nepolyká důležitá hlášení.
+     * Detekuje typ a verzi databáze pro DBAL 3/4 bez volání getName().
+     * Vrací [driver, version, error].
      *
      * @return array{0:?string,1:?string,2:?string}
      */
@@ -142,63 +141,66 @@ final class WebStatusCollector
         $driver = null;
         $version = null;
         $error = null;
-
+    
         try {
-            // 1) Získej default connection (Registry v DoctrineBundle ji vždy má)
             $conn = $this->doctrine?->getConnection();
             if (!$conn) {
                 return [null, null, 'ManagerRegistry is null (not injected)'];
             }
-
-            // 2) Zjisti platformu a předvyplň "driver" – ať ho máme i při chybě verze
-            //    DBAL 4 může vracet 'mysql' nebo 'mariadb' jako separátní platformu.
-            $platform = $conn->getDatabasePlatform()->getName(); // 'mysql' | 'mariadb' | 'postgresql' | 'sqlite' | ...
-            $driver = match ($platform) {
-                'mysql'      => 'MySQL',
-                'mariadb'    => 'MariaDB',
-                'postgresql' => 'PostgreSQL',
-                'sqlite'     => 'SQLite',
-                default      => $platform,
-            };
-
-            // 3) Verzi zkusit získat co nejbezpečněji
+    
+            // 1) Pokus #1: zkusíme verzi přes SQL – funguje i na DBAL 4
             try {
-                switch ($platform) {
-                    case 'mysql':
-                    case 'mariadb':
-                        // Platí pro MySQL i MariaDB
-                        $version = $conn->fetchOne('SELECT VERSION()');
-                        // Když DBAL vrátí 'mysql', ale verze obsahuje 'MariaDB', přepíšeme driver
-                        if ($platform === 'mysql' && $version && stripos($version, 'mariadb') !== false) {
-                            $driver = 'MariaDB';
-                        }
-                        break;
-
-                    case 'postgresql':
-                        // SHOW server_version bývá dostupné, fallback přes SELECT version()
-                        $version = $conn->fetchOne('SHOW server_version');
-                        if (!$version) {
-                            $version = $conn->fetchOne('SELECT version()');
-                        }
-                        break;
-
-                    case 'sqlite':
+                // MySQL/MariaDB – funguje na obou
+                $version = $conn->fetchOne('SELECT VERSION()');
+            } catch (\Throwable) {
+                // PostgreSQL (někdy je lepší SHOW server_version)
+                try {
+                    $version = $conn->fetchOne('SHOW server_version') ?: $conn->fetchOne('SELECT version()');
+                } catch (\Throwable) {
+                    // SQLite
+                    try {
                         $version = $conn->fetchOne('SELECT sqlite_version()');
-                        break;
-
-                    default:
-                        // Univerzální pokus (na řadě backendů existuje)
-                        $version = $conn->fetchOne('SELECT VERSION()');
+                    } catch (\Throwable $e) {
+                        $error = 'Version query failed: ' . $e->getMessage();
+                    }
                 }
-            } catch (\Throwable $e) {
-                // Necháme driver, ale popíšeme, proč není verze
-                $error = 'Version query failed: ' . $e->getMessage();
             }
+    
+            // 2) Urči vendor (driver) bez getName()
+            //    a) z názvu třídy platformy (DBAL 4 má např. MariaDB1010Platform)
+            $platformClass = ($p = $conn->getDatabasePlatform()) ? $p::class : null;
+            $platformGuess = null;
+            if ($platformClass) {
+                $lc = strtolower($platformClass);
+                if (str_contains($lc, 'mariadb'))      { $platformGuess = 'MariaDB'; }
+                elseif (str_contains($lc, 'mysql'))    { $platformGuess = 'MySQL'; }
+                elseif (str_contains($lc, 'postgres')) { $platformGuess = 'PostgreSQL'; }
+                elseif (str_contains($lc, 'sqlite'))   { $platformGuess = 'SQLite'; }
+            }
+    
+            //    b) pokud je k dispozici verze, upřesníme MariaDB vs MySQL
+            if ($version && stripos($version, 'mariadb') !== false) {
+                $driver = 'MariaDB';
+            } elseif ($platformGuess) {
+                $driver = $platformGuess;
+            } else {
+                //    c) poslední fallback: connection params (DBAL 3/4)
+                $params   = $conn->getParams();
+                $driverId = $params['driver'] ?? null; // pdo_mysql / mysqli / pdo_pgsql / pdo_sqlite …
+                $driver = match (true) {
+                    is_string($driverId) && str_contains($driverId, 'mysql')    => 'MySQL',
+                    is_string($driverId) && str_contains($driverId, 'mariadb')  => 'MariaDB',
+                    is_string($driverId) && str_contains($driverId, 'pgsql')    => 'PostgreSQL',
+                    is_string($driverId) && str_contains($driverId, 'sqlite')   => 'SQLite',
+                    default => $driverId,
+                };
+            }
+    
         } catch (\Throwable $e) {
-            // Pokud se nepodaří ani získat platformu/connection, vraťme chybu
             return [null, null, 'Connection/platform failed: ' . $e->getMessage()];
         }
-
+    
         return [$driver, $version, $error];
     }
+
 }
