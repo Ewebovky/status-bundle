@@ -18,7 +18,7 @@ final class WebStatusCollector
     /** @return array<string,mixed> */
     public function collect(string $host): array
     {
-        [$dbDriver, $dbVersion] = $this->detectDatabase();
+        [$dbDriver, $dbVersion, $dbError] = $this->detectDatabase();
 
         return [
             'framework'                     => 'symfony',
@@ -37,6 +37,7 @@ final class WebStatusCollector
             'serverIp'                      => $this->detectServerIp(),
             'dbServer'                      => $dbDriver,
             'dbVersion'                     => $dbVersion,
+            'dbError'                       => $dbError,
             'generatedAt'                   => (new DateTimeImmutable())->format(DATE_ATOM),
         ];
     }
@@ -131,60 +132,73 @@ final class WebStatusCollector
 
     /**
      * Detekuje typ a verzi databáze.
-     * @return array{0:?string,1:?string} [driver, version]
+     * Vrací [driver, version, error] – error je string nebo null.
+     * Nikdy nevyhazuje výjimku (aby endpoint nespadl), ale nepolyká důležitá hlášení.
+     *
+     * @return array{0:?string,1:?string,2:?string}
      */
     private function detectDatabase(): array
     {
         $driver = null;
         $version = null;
+        $error = null;
 
         try {
+            // 1) Získej default connection (Registry v DoctrineBundle ji vždy má)
             $conn = $this->doctrine?->getConnection();
             if (!$conn) {
-                return [null, null];
+                return [null, null, 'ManagerRegistry is null (not injected)'];
             }
 
-            $platform = $conn->getDatabasePlatform()->getName(); // mysql, postgresql, sqlite, ...
-            $params   = $conn->getParams();
-            $driverId = $params['driver'] ?? null;               // pdo_mysql, mysqli, pdo_pgsql, ...
-
-            // Určení typu
+            // 2) Zjisti platformu a předvyplň "driver" – ať ho máme i při chybě verze
+            //    DBAL 4 může vracet 'mysql' nebo 'mariadb' jako separátní platformu.
+            $platform = $conn->getDatabasePlatform()->getName(); // 'mysql' | 'mariadb' | 'postgresql' | 'sqlite' | ...
             $driver = match ($platform) {
                 'mysql'      => 'MySQL',
+                'mariadb'    => 'MariaDB',
                 'postgresql' => 'PostgreSQL',
                 'sqlite'     => 'SQLite',
-                default      => $platform ?: $driverId,
+                default      => $platform,
             };
 
-            // Získání verze - univerzálně přes SQL dotaz
-            switch ($platform) {
-                case 'mysql':
-                    $version = $conn->fetchOne('SELECT VERSION()');
-                    if ($version && stripos($version, 'mariadb') !== false) {
-                        $driver = 'MariaDB';
-                    }
-                    break;
+            // 3) Verzi zkusit získat co nejbezpečněji
+            try {
+                switch ($platform) {
+                    case 'mysql':
+                    case 'mariadb':
+                        // Platí pro MySQL i MariaDB
+                        $version = $conn->fetchOne('SELECT VERSION()');
+                        // Když DBAL vrátí 'mysql', ale verze obsahuje 'MariaDB', přepíšeme driver
+                        if ($platform === 'mysql' && $version && stripos($version, 'mariadb') !== false) {
+                            $driver = 'MariaDB';
+                        }
+                        break;
 
-                case 'postgresql':
-                    $version = $conn->fetchOne('SHOW server_version');
-                    if (!$version) {
-                        $version = $conn->fetchOne('SELECT version()');
-                    }
-                    break;
+                    case 'postgresql':
+                        // SHOW server_version bývá dostupné, fallback přes SELECT version()
+                        $version = $conn->fetchOne('SHOW server_version');
+                        if (!$version) {
+                            $version = $conn->fetchOne('SELECT version()');
+                        }
+                        break;
 
-                case 'sqlite':
-                    $version = $conn->fetchOne('SELECT sqlite_version()');
-                    break;
+                    case 'sqlite':
+                        $version = $conn->fetchOne('SELECT sqlite_version()');
+                        break;
 
-                default:
-                    $version = $conn->fetchOne('SELECT VERSION()');
-                    break;
+                    default:
+                        // Univerzální pokus (na řadě backendů existuje)
+                        $version = $conn->fetchOne('SELECT VERSION()');
+                }
+            } catch (\Throwable $e) {
+                // Necháme driver, ale popíšeme, proč není verze
+                $error = 'Version query failed: ' . $e->getMessage();
             }
         } catch (\Throwable $e) {
-            // necháme null - endpoint nesmí kvůli DB selhat
-            // případně log: error_log('DB detect failed: '.$e->getMessage());
+            // Pokud se nepodaří ani získat platformu/connection, vraťme chybu
+            return [null, null, 'Connection/platform failed: ' . $e->getMessage()];
         }
 
-        return [$driver, $version];
+        return [$driver, $version, $error];
     }
 }
