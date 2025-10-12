@@ -18,19 +18,6 @@ final class WebStatusCollector
     /** @return array<string,mixed> */
     public function collect(string $host): array
     {
-        $framework              = 'symfony';
-        $frameworkVersion       = Kernel::VERSION;                          // např. 7.1.x
-        $frameworkMajorVersion  = Kernel::MAJOR_VERSION . '.' . Kernel::MINOR_VERSION;
-        //$frameworkMajorVersion  = preg_replace('/^(\d+\.\d+).*/', '$1', $frameworkVersion) ?? null;
-
-        $phpVersion             = PHP_VERSION;                                     // např. 8.4.13
-        $phpMajorVersion        = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;         // např. 8.4
-
-        $serverSoftware         = $_SERVER['SERVER_SOFTWARE'] ?? php_sapi_name();
-        //$serverOperatingSystem  = PHP_OS_FAMILY;                              // např. Darwin
-        $serverName             = php_uname('n');
-        $serverIp               = isset($_SERVER["SERVER_ADDR"]) ? $_SERVER["SERVER_ADDR"] : null;
-
         $dbServer = null;
         $dbVersion = null;
         try {
@@ -44,62 +31,111 @@ final class WebStatusCollector
         }
 
         return [
-            'framework'                     => $framework,
-            'frameworkVersion'              => $frameworkVersion,
-            'frameworkMajorVersion'         => $frameworkMajorVersion,
+            'framework'                     => 'symfony',
+            'frameworkVersion'              => Kernel::VERSION,
+            'frameworkMajorVersion'         => Kernel::MAJOR_VERSION . '.' . Kernel::MINOR_VERSION,
             'frameworkEndOfMaintenance'     => Kernel::END_OF_MAINTENANCE,                           // nechávám na tobě (pokud chceš, můžeme dopočítávat z mapy)
             'frameworkEndOfLife'            => Kernel::END_OF_LIFE,
             'environment'                   => $this->appEnv,
-            'phpMajorVersion'               => $phpMajorVersion,
-            'phpVersion'                    => $phpVersion,
-            'serverSoftware'                => (string) $serverSoftware,
+            'phpMajorVersion'               => PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION,
+            'phpVersion'                    => PHP_VERSION,
+            'serverSoftware'                => (string) $_SERVER['SERVER_SOFTWARE'] ?? php_sapi_name(),
             'host'                          => $host,
-            'serverOperatingSystem'         => $this->getOs()['name'],
-            'serverOperatingSystemVersion'  => $this->getOs()['version'],
-            'serverName'                    => $serverName,
-            'serverIp'                      => $serverIp,
+            'serverOperatingSystem'         => $this->detectOs()['name'],
+            'serverOperatingSystemVersion'  => $this->detectOs()['version'],
+            'serverName'                    => php_uname('n'),
+            'serverIp'                      => $this->detectServerIp(),
             'dbServer'                      => $dbServer,
             'dbVersion'                     => $dbVersion,
             'generatedAt'                   => (new DateTimeImmutable())->format(DATE_ATOM),
         ];
     }
 
-    private function getOs(): array
+    private function detectOs(): array
     {
-        $os_release = shell_exec('cat /etc/os-release');
+        $result = ['name' => '', 'version' => ''];
 
-        $os = ['name' => '', 'version' => ''];
+        // 1) Linux: /etc/os-release
+        if (is_readable('/etc/os-release')) {
+            $data = file('/etc/os-release', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 
-        if ($os_release) {
-            // Rozdělí výstup podle řádků
-            $lines = explode("\n", $os_release);
-            foreach ($lines as $line) {
-                if (strpos($line, 'NAME=') === 0) {
-                    $name = trim($line, 'NAME=');
-                    $name = trim($name, '"'); // Odstraní případné uvozovky
-                    $os['name'] = $name;
+            $kv = [];
+            foreach ($data as $line) {
+                if ($line[0] === '#') continue;
+                $pos = strpos($line, '=');
+                if ($pos === false) continue;
+
+                $k = substr($line, 0, $pos);
+                $v = substr($line, $pos + 1);
+                $v = trim($v);
+
+                // odstraň uvozovky, pokud jsou
+                if ((str_starts_with($v, '"') && str_ends_with($v, '"')) ||
+                    (str_starts_with($v, "'") && str_ends_with($v, "'"))
+                ) {
+                    $v = substr($v, 1, -1);
                 }
-                if (strpos($line, 'VERSION=') === 0) {
-                    $version = trim($line, 'VERSION=');
-                    $version = trim($version, '"'); // Odstraní případné uvozovky
-                    $os['version'] = $version;
-                }
+                $kv[$k] = $v;
             }
-        } else {
-            // Pokud /etc/os-release není k dispozici, zkusí lsb_release
-            $lsb_release = shell_exec('lsb_release -ds');
-            if ($lsb_release) {
-                $os['name'] = trim($lsb_release, '"');
+
+            if (!empty($kv['NAME']))    $result['name']    = $kv['NAME'];
+            if (!empty($kv['VERSION'])) $result['version'] = $kv['VERSION'];
+
+            // někteří výrobci VERSION neuvádí → vezmi VERSION_ID jako rozumný fallback
+            if ($result['version'] === '' && !empty($kv['VERSION_ID'])) {
+                $result['version'] = $kv['VERSION_ID'];
             }
         }
 
-        if ($os['name'] == '') {
-            $os['name'] = php_uname('s');
+        // 2) Fallback: lsb_release (ne všude k dispozici)
+        if ($result['name'] === '') {
+            $name = @shell_exec('lsb_release -si 2>/dev/null');
+            if ($name) $result['name'] = trim($name);
         }
-        if ($os['version'] == '') {
-            $os['version'] = php_uname('r');
+        if ($result['version'] === '') {
+            $ver = @shell_exec('lsb_release -sr 2>/dev/null');
+            if ($ver) $result['version'] = trim($ver);
         }
 
-        return $os;
+        // 3) Poslední záchrana: uname (pro nelinuxové systémy, kontejnery, BSD ap.)
+        if ($result['name'] === '')    $result['name'] = php_uname('s'); // např. "Darwin", "FreeBSD", "Linux"
+        if ($result['version'] === '') $result['version'] = php_uname('r');
+
+        return $result;
+    }
+
+
+    private function detectServerIp(): ?string
+    {
+        // 1) klasika ze serveru (pokud webový request a NGINX to předává)
+        if (!empty($_SERVER['SERVER_ADDR'])) {
+            return $_SERVER['SERVER_ADDR'];
+        }
+
+        // 2) za proxy – vlastní hlavička, pokud si ji nastavíš
+        if (!empty($_SERVER['HTTP_X_SERVER_ADDR'])) {
+            return $_SERVER['HTTP_X_SERVER_ADDR'];
+        }
+
+        // 3) Docker/K8s hostname → DNS
+        $host = getenv('HOSTNAME') ?: gethostname();
+        if ($host) {
+            $ip = gethostbyname($host);
+            if ($ip && $ip !== $host) {
+                return $ip;
+            }
+        }
+
+        // 4) „odchozí“ IP přes UDP socket (spolehlivý fallback)
+        $s = @stream_socket_client('udp://8.8.8.8:53', $errno, $errstr, 1);
+        if ($s) {
+            $name = stream_socket_get_name($s, false);
+            fclose($s);
+            if ($name) {
+                return explode(':', $name)[0];
+            }
+        }
+
+        return null;
     }
 }
