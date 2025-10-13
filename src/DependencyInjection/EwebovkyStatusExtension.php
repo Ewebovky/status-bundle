@@ -10,6 +10,11 @@ use Symfony\Component\HttpKernel\DependencyInjection\Extension;
 
 final class EwebovkyStatusExtension extends Extension
 {
+    public function getAlias(): string
+    {
+        return 'ewebovky_status';
+    }
+
     public function load(array $configs, ContainerBuilder $container): void
     {
         $configuration = new Configuration();
