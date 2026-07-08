@@ -10,7 +10,7 @@
   },
   "require": {
     "php": "^8.1",
-    "symfony/framework-bundle": "^6.4 || ^7.0"
+    "symfony/framework-bundle": "^6.4 || ^7.0 || ^8.0"
   },
   "suggest": {
     "doctrine/persistence": "Pro zobrazení informací o DB verzi."
@@ -20,5 +20,5 @@
       "dev-main": "1.x-dev"
     }
   },
-  "version": "1.0.3"
+  "version": "1.1.0"
 }
