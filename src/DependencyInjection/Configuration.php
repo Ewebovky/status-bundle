@@ -14,7 +14,10 @@ final class Configuration implements ConfigurationInterface
 
         $tree->getRootNode()
             ->children()
-                ->scalarNode('token')->isRequired()->cannotBeEmpty()->end()
+                // Token je záměrně volitelný (default null). Když není nastavený,
+                // endpoint je za běhu vypnutý (fail-closed 403) — bundle tak nikdy
+                // neshodí stavbu kontejneru kvůli chybějícímu configu/env/recipe.
+                ->scalarNode('token')->defaultNull()->end()
             ->end();
 
         return $tree;

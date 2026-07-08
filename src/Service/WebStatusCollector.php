@@ -29,7 +29,7 @@ final class WebStatusCollector
             'environment'                   => $this->appEnv,
             'phpMajorVersion'               => PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION,
             'phpVersion'                    => PHP_VERSION,
-            'serverSoftware'                => (string) $_SERVER['SERVER_SOFTWARE'] ?? php_sapi_name(),
+            'serverSoftware'                => (string) ($_SERVER['SERVER_SOFTWARE'] ?? php_sapi_name()),
             'host'                          => $host,
             'serverOperatingSystem'         => $this->detectOs()['name'],
             'serverOperatingSystemVersion'  => $this->detectOs()['version'],

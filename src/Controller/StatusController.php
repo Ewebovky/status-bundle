@@ -12,12 +12,19 @@ final class StatusController
 {
     public function __construct(
         private readonly WebStatusCollector $collector,
-        private readonly string $statusToken,
+        private readonly ?string $statusToken,
     ) {}
 
     #[Route(path: '/status.json', name: 'ewebovky_status_json', methods: ['GET'])]
     public function __invoke(Request $request): JsonResponse
     {
+        // Fail-closed: bez nakonfigurovaného tokenu je endpoint vypnutý.
+        // Neresolvnutý %env(...)% nebo chybějící config tak neshodí web, jen
+        // zablokuje tenhle jeden endpoint.
+        if ($this->statusToken === null || $this->statusToken === '') {
+            return new JsonResponse(['error' => 'Status endpoint disabled'], JsonResponse::HTTP_FORBIDDEN);
+        }
+
         $provided = $this->extractToken($request);
         if (!$provided || !\hash_equals($this->statusToken, $provided)) {
             return new JsonResponse(['error' => 'Unauthorized'], JsonResponse::HTTP_UNAUTHORIZED);
