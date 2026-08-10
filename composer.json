@@ -2,23 +2,55 @@
   "name": "ewebovky/status-bundle",
   "description": "Generátor a endpoint pro status.json v Symfony pro Ewebovky.",
   "type": "symfony-bundle",
+  "keywords": ["symfony", "bundle", "status", "monitoring", "health-check"],
   "license": "MIT",
+  "homepage": "https://www.ewebovky.cz",
+  "authors": [
+    {
+      "name": "Václav Pavlů",
+      "email": "pavlu@ewebovky.cz",
+      "homepage": "https://www.vaclavpavlu.cz",
+      "role": "Developer"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/Ewebovky/status-bundle/issues",
+    "source": "https://github.com/Ewebovky/status-bundle"
+  },
   "autoload": {
     "psr-4": {
       "Ewebovky\\StatusBundle\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Ewebovky\\StatusBundle\\Tests\\": "tests/"
     }
   },
   "require": {
     "php": "^8.1",
     "symfony/framework-bundle": "^6.4 || ^7.0 || ^8.0"
   },
+  "require-dev": {
+    "doctrine/persistence": "^3.0 || ^4.0",
+    "phpstan/phpstan": "^2.0",
+    "phpunit/phpunit": "^10.5 || ^11.0",
+    "symfony/console": "^6.4 || ^7.0 || ^8.0"
+  },
   "suggest": {
-    "doctrine/persistence": "Pro zobrazení informací o DB verzi."
+    "doctrine/persistence": "Pro zobrazení informací o DB verzi.",
+    "symfony/console": "Pro příkaz bin/console ewebovky:status."
+  },
+  "scripts": {
+    "test": "phpunit",
+    "phpstan": "phpstan analyse --memory-limit=512M"
+  },
+  "config": {
+    "sort-packages": true
   },
   "extra": {
     "branch-alias": {
       "dev-main": "1.x-dev"
     }
-  },
-  "version": "1.1.1"
+  }
 }

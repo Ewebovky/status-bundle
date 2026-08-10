@@ -1,0 +1,11 @@
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.phpunit.result.cache
+/phpunit.xml
+/phpstan.neon
+
+# Interní poznámky k rozpracovaným vylepšením — nepatří do vydaného balíčku.
+/IMPROVEMENTS.md
+
+.DS_Store

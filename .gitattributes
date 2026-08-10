@@ -1,0 +1,8 @@
+# Do dist balíčku patří jen to, co aplikace opravdu potřebuje.
+/.github/            export-ignore
+/tests/              export-ignore
+/.gitattributes      export-ignore
+/.gitignore          export-ignore
+/phpunit.xml.dist    export-ignore
+/phpstan.dist.neon   export-ignore
+/IMPROVEMENTS.md     export-ignore

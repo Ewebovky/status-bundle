@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Ewebovky\StatusBundle\Command\StatusCommand;
 use Ewebovky\StatusBundle\Service\WebStatusCollector;
 use Ewebovky\StatusBundle\Controller\StatusController;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
@@ -23,4 +24,13 @@ return static function (ContainerConfigurator $config): void {
             service(WebStatusCollector::class),
             param('ewebovky_status.token'),
         ]);
+
+    // symfony/console je jen doporučená závislost — bez ní by registrace
+    // příkazu shodila stavbu kontejneru, a tím celý web.
+    if (class_exists(\Symfony\Component\Console\Command\Command::class)) {
+        $services->set(StatusCommand::class)
+            ->args([
+                service(WebStatusCollector::class),
+            ]);
+    }
 };

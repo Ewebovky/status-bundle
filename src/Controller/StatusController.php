@@ -15,7 +15,10 @@ final class StatusController
         private readonly ?string $statusToken,
     ) {}
 
-    #[Route(path: '/status.json', name: 'ewebovky_status_json', methods: ['GET'])]
+    // Cesta se bere z konfigurace (ewebovky_status.path, default /status.json).
+    // Symfony placeholder v atributu resolvuje stejně jako v YAML definici, takže
+    // se nemění způsob importu rout ani jméno routy.
+    #[Route(path: '%ewebovky_status.path%', name: 'ewebovky_status_json', methods: ['GET'])]
     public function __invoke(Request $request): JsonResponse
     {
         // Fail-closed: bez nakonfigurovaného tokenu je endpoint vypnutý.
@@ -32,28 +35,47 @@ final class StatusController
 
         $data = $this->collector->collect($request->getHost());
 
+        // Symfony vrací konce podpory jako řetězec ve tvaru „11/2027“, takže se
+        // podmínka na DateTimeInterface dnes neuplatní. Zůstává jako pojistka pro
+        // zdroje, které by vracely objekt — jiný framework nebo vlastní provider.
+        // Formát „m/Y“ je zvolený schválně: sjednotí výstup s tím, co posílá
+        // Symfony, takže protistrana nemusí umět druhý tvar.
         foreach (['frameworkEndOfMaintenance', 'frameworkEndOfLife'] as $k) {
             if (($data[$k] ?? null) instanceof \DateTimeInterface) {
-                $data[$k] = $data[$k]->format('Y-m-d');
+                $data[$k] = $data[$k]->format('m/Y');
             }
         }
 
-        $json = \json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $etag = '"' . sha1((string)$json) . '"';
+        $json = \json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 
-        if ($request->headers->get('If-None-Match') === $etag) {
-            return new JsonResponse(null, JsonResponse::HTTP_NOT_MODIFIED, ['ETag' => $etag]);
-        }
-
-        return new JsonResponse(
-            \json_decode((string)$json, true, 512, JSON_THROW_ON_ERROR),
+        // fromJsonString pošle přesně ta data, ze kterých je spočítaný ETag.
+        // Předání pole do JsonResponse by je zakódovalo znovu, a to výchozími
+        // flagy — tedy s odescapovanou diakritikou i lomítky, takže by ETag
+        // neodpovídal skutečně odeslanému tělu.
+        $response = JsonResponse::fromJsonString(
+            $json,
             JsonResponse::HTTP_OK,
             [
-                'Content-Type'  => 'application/json; charset=utf-8',
-                'Cache-Control' => 'no-cache',
-                'ETag'          => $etag,
+                'Content-Type'           => 'application/json; charset=utf-8',
+                'Cache-Control'          => 'no-cache',
+                // Endpoint je sice pod tokenem, ale URL se může objevit v logu
+                // nebo v hlavičce Referer.
+                'X-Robots-Tag'           => 'noindex, nofollow',
+                // Bez flagů JSON_HEX_* v odpovědi zůstávají znaky < > &, takže
+                // ať prohlížeč obsah nepřetypuje na text/html.
+                'X-Content-Type-Options' => 'nosniff',
             ]
         );
+
+        // setEtag() hodnotu obalí uvozovkami sám, výsledek je stejný jako dřív.
+        $response->setEtag(sha1($json));
+
+        // Při shodě ETagu z odpovědi udělá 304 a vyprázdní tělo. Oproti ručnímu
+        // porovnání zvládne seznam hodnot i „*“ v If-None-Match a ověří, že je
+        // metoda cacheovatelná.
+        $response->isNotModified($request);
+
+        return $response;
     }
 
     private function extractToken(Request $request): ?string

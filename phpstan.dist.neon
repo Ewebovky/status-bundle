@@ -1,0 +1,13 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # ManagerRegistry::getConnection() deklaruje návratový typ object a DBAL
+        # není závislostí bundlu, takže PHPStan metody Connection nezná. Volání
+        # jsou ošetřená v try/catch, viz WebStatusCollector::detectDatabase().
+        -
+            message: '#^Call to an undefined method object::#'
+            path: src/Service/WebStatusCollector.php
