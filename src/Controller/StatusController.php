@@ -10,6 +10,21 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class StatusController
 {
+    /**
+     * Pole, která se mění při každém požadavku, i když se stav serveru nijak
+     * neposunul: čas generování a metriky opcache, jež rostou s každým načteným
+     * skriptem a každým zásahem do cache.
+     *
+     * Do výpočtu ETagu nepatří — jinak by hash byl pokaždé jiný a odpověď 304
+     * by nenastala prakticky nikdy. ETag tak identifikuje stav serveru
+     * (verze, rozšíření, databáze, restarty opcache), ne konkrétní bajty těla.
+     */
+    private const VOLATILNI_POLE = [
+        'generatedAt',
+        'opcacheMemoryUsedPercent',
+        'opcacheHitRate',
+    ];
+
     public function __construct(
         private readonly WebStatusCollector $collector,
         private readonly ?string $statusToken,
@@ -68,7 +83,7 @@ final class StatusController
         );
 
         // setEtag() hodnotu obalí uvozovkami sám, výsledek je stejný jako dřív.
-        $response->setEtag(sha1($json));
+        $response->setEtag($this->spocitejEtag($data));
 
         // Při shodě ETagu z odpovědi udělá 304 a vyprázdní tělo. Oproti ručnímu
         // porovnání zvládne seznam hodnot i „*“ v If-None-Match a ověří, že je
@@ -76,6 +91,16 @@ final class StatusController
         $response->isNotModified($request);
 
         return $response;
+    }
+
+    /**
+     * @param array<string,mixed> $data
+     */
+    private function spocitejEtag(array $data): string
+    {
+        $stabilni = array_diff_key($data, array_flip(self::VOLATILNI_POLE));
+
+        return sha1(json_encode($stabilni, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     }
 
     private function extractToken(Request $request): ?string

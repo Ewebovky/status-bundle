@@ -110,12 +110,28 @@ final class StatusEndpointTest extends TestCase
         self::assertStringStartsWith('application/json', (string) $response->headers->get('Content-Type'));
     }
 
-    /** A6: ETag musí odpovídat skutečně odeslanému tělu. */
-    public function testEtagMatchesResponseBody(): void
+    /**
+     * ETag se počítá ze stavu serveru, ne z bajtů těla — čas generování a rostoucí
+     * metriky opcache jsou z něj vyloučené. Bez toho by byl pokaždé jiný a 304 by
+     * nenastalo nikdy.
+     */
+    public function testEtagIsStableAcrossRequests(): void
     {
-        $response = $this->volej('/status.json', ['X-Status-Token' => self::TOKEN]);
+        $prvni = $this->volej('/status.json', ['X-Status-Token' => self::TOKEN]);
+        $druhy = $this->volej('/status.json', ['X-Status-Token' => self::TOKEN]);
 
-        self::assertSame('"' . sha1((string) $response->getContent()) . '"', $response->headers->get('ETag'));
+        self::assertNotNull($prvni->headers->get('ETag'));
+        self::assertSame($prvni->headers->get('ETag'), $druhy->headers->get('ETag'));
+    }
+
+    /** ETag přesto musí reagovat na změnu obsahu. */
+    public function testEtagChangesWhenDataChange(): void
+    {
+        $prvni = $this->volej('/status.json', ['X-Status-Token' => self::TOKEN]);
+        // Jiný host = jiná hodnota pole "host" v odpovědi.
+        $druhy = $this->volej('http://jiny-web.cz/status.json', ['X-Status-Token' => self::TOKEN]);
+
+        self::assertNotSame($prvni->headers->get('ETag'), $druhy->headers->get('ETag'));
     }
 
     /** A6: diakritika a lomítka zůstávají neescapované. */

@@ -3,6 +3,21 @@
 Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verzování se řídí [SemVer](https://semver.org/lang/cs/).
 
+## [1.2.1] – 2026-08-10
+
+### Opraveno
+
+- **ETag byl nestabilní, takže odpověď `304` prakticky nikdy nenastala.**
+  Počítal se z celého těla včetně `generatedAt` (mění se každou sekundu)
+  a metrik opcache `opcacheMemoryUsedPercent` a `opcacheHitRate` (rostou
+  s každým načteným skriptem). Nově se tahle tři pole z výpočtu vynechávají —
+  ETag tedy identifikuje stav serveru, ne konkrétní bajty těla.
+
+### Změněno
+
+- Testy nehlásí rizikový stav kvůli deprecation hláškám, které starší verze
+  Symfony vypisují na novějším PHP.
+
 ## [1.2.0] – 2026-08-10
 
 ### Přidáno
@@ -43,5 +58,6 @@ verzování se řídí [SemVer](https://semver.org/lang/cs/).
 
 Historie viz [commity](https://github.com/Ewebovky/status-bundle/commits/main).
 
+[1.2.1]: https://github.com/Ewebovky/status-bundle/compare/1.2.0...1.2.1
 [1.2.0]: https://github.com/Ewebovky/status-bundle/compare/1.1.1...1.2.0
 [1.1.1]: https://github.com/Ewebovky/status-bundle/releases/tag/1.1.1
